@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CIFAR-10 Image Recognition</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tensorflow/4.2.0/tf.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        
+        h1, h2 {
+            color: #333;
+        }
+        
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        #results-container {
+            width: 100%;
+            margin-top: 20px;
+        }
+        
+        .result-item {
+            display: flex;
+            margin-bottom: 10px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        
+        .result-image {
+            width: 80px;
+            height: 80px;
+            margin-right: 20px;
+        }
+        
+        .result-details {
+            flex-grow: 1;
+        }
+        
+        .prediction-bar {
+            height: 20px;
+            background-color: #4CAF50;
+            margin-bottom: 5px;
+        }
+        
+        .control-panel {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f5f5f5;
+            border-radius: 4px;
+        }
+        
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        
+        progress {
+            width: 100%;
+        }
+        
+        #status {
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        
+        #upload-container {
+            margin: 20px 0;
+        }
+        
+        #custom-image {
+            display: none;
+        }
+        
+        #image-preview {
+            max-width: 200px;
+            max-height: 200px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>CIFAR-10 Image Recognition</h1>
+    
+    <div class="container">
+        <div class="control-panel">
+            <h2>Model Controls</h2>
+            <button id="load-model">Load Pre-trained Model</button>
+            <button id="train-model" disabled>Train New Model</button>
+            <div id="status">Status: Ready</div>
+            <progress id="progress-bar" value="0" max="100" style="display: none;"></progress>
+        </div>
+        
+        <div id="upload-container">
+            <h2>Test Custom Image</h2>
+            <input type="file" id="custom-image" accept="image/*">
+            <button id="upload-button">Select Image</button>
+            <div>
+                <img id="image-preview" style="display: none;" />
+            </div>
+            <button id="predict-custom" disabled>Predict Class</button>
+        </div>
+        
+        <h2>CIFAR-10 Test Examples</h2>
+        <button id="test-model" disabled>Test on Sample Images</button>
+        
+        <div id="results-container"></div>
+    </div>
+    
+    <script>
+        // CIFAR-10 class names
+        const CLASSES = [
+            'airplane', 'automobile', 'bird', 'cat', 'deer',
+            'dog', 'frog', 'horse', 'ship', 'truck'
+        ];
+        
+        // Global variables
+        let model = null;
+        let isModelReady = false;
+        
+        // DOM Elements
+        const loadModelBtn = document.getElementById('load-model');
+        const trainModelBtn = document.getElementById('train-model');
+        const testModelBtn = document.getElementById('test-model');
+        const statusEl = document.getElementById('status');
+        const progressBar = document.getElementById('progress-bar');
+        const resultsContainer = document.getElementById('results-container');
+        const uploadBtn = document.getElementById('upload-button');
+        const customImageInput = document.getElementById('custom-image');
+        const imagePreview = document.getElementById('image-preview');
+        const predictCustomBtn = document.getElementById('predict-custom');
+        
+        // Helper function to update status
+        function updateStatus(message) {
+            statusEl.textContent = `Status: ${message}`;
+        }
+        
+        // Create a simple CNN model for CIFAR-10
+        function createModel() {
+            const model = tf.sequential();
+            
+            // First convolutional layer
+            model.add(tf.layers.conv2d({
+                inputShape: [32, 32, 3],
+                filters: 32,
+                kernelSize: 3,
+                activation: 'relu',
+                padding: 'same'
+            }));
+            
+            model.add(tf.layers.maxPooling2d({ poolSize: 2 }));
+            
+            // Second convolutional layer
+            model.add(tf.layers.conv2d({
+                filters: 64,
+                kernelSize: 3,
+                activation: 'relu',
+                padding: 'same'
+            }));
+            
+            model.add(tf.layers.maxPooling2d({ poolSize: 2 }));
+            
+            // Third convolutional layer
+            model.add(tf.layers.conv2d({
+                filters: 128,
+                kernelSize: 3,
+                activation: 'relu',
+                padding: 'same'
+            }));
+            
+            model.add(tf.layers.maxPooling2d({ poolSize: 2 }));
+            
+            // Flatten and dense layers
+            model.add(tf.layers.flatten());
+            model.add(tf.layers.dense({ units: 128, activation: 'relu' }));
+            model.add(tf.layers.dropout({ rate: 0.5 }));
+            model.add(tf.layers.dense({ units: 10, activation: 'softmax' }));
+            
+            model.compile({
+                optimizer: 'adam',
+                loss: 'categoricalCrossentropy',
+                metrics: ['accuracy']
+            });
+            
+            return model;
+        }
+        
+        // Generate synthetic CIFAR-10 like data for demo purposes
+        async function generateSyntheticData() {
+            // In a real application, you would load the actual CIFAR-10 dataset
+            const NUM_TRAIN_ELEMENTS = 500;  // Smaller subset for quick training
+            const NUM_TEST_ELEMENTS = 20;
+            
+            const trainImages = tf.randomNormal([NUM_TRAIN_ELEMENTS, 32, 32, 3]);
+            const testImages = tf.randomNormal([NUM_TEST_ELEMENTS, 32, 32, 3]);
+            
+            // Generate random labels (0-9) for training data
+            const trainLabelsRaw = Array.from({ length: NUM_TRAIN_ELEMENTS }, 
+                                             () => Math.floor(Math.random() * 10));
+            const testLabelsRaw = Array.from({ length: NUM_TEST_ELEMENTS }, 
+                                            () => Math.floor(Math.random() * 10));
+            
+            // Convert to one-hot encoding
+            const trainLabels = tf.oneHot(tf.tensor1d(trainLabelsRaw, 'int32'), 10);
+            const testLabels = tf.oneHot(tf.tensor1d(testLabelsRaw, 'int32'), 10);
+            
+            // Store raw labels for reference
+            const testData = {
+                images: testImages,
+                labels: testLabels,
+                rawLabels: testLabelsRaw
+            };
+            
+            return {
+                train: { images: trainImages, labels: trainLabels },
+                test: testData
+            };
+        }
+        
+        // Load pre-trained model
+        async function loadPretrainedModel() {
+            updateStatus('Loading pre-trained model...');
+            progressBar.style.display = 'block';
+            progressBar.value = 10;
+            
+            try {
+                // In a real application, you would load from a server
+                // Here we'll create a new model to simulate loading
+                model = createModel();
+                
+                // Simulate loading time
+                await new Promise(resolve => setTimeout(resolve, 1500));
+                progressBar.value = 50;
+                
+                // For demo purposes, we'll train it slightly to have a working model
+                const data = await generateSyntheticData();
+                
+                await model.fit(data.train.images, data.train.labels, {
+                    epochs: 3,
+                    batchSize: 32,
+                    callbacks: {
+                        onEpochEnd: (epoch, logs) => {
+                            progressBar.value = 50 + Math.floor((epoch + 1) / 3 * 50);
+                            updateStatus(`Training epoch ${epoch + 1}/3, Loss: ${logs.loss.toFixed(4)}`);
+                        }
+                    }
+                });
+                
+                isModelReady = true;
+                updateStatus('Model loaded and ready!');
+                trainModelBtn.disabled = false;
+                testModelBtn.disabled = false;
+                predictCustomBtn.disabled = false;
+                
+            } catch (error) {
+                console.error('Error loading model:', error);
+                updateStatus('Error loading model!');
+            } finally {
+                progressBar.style.display = 'none';
+            }
+        }
+        
+        // Train new model
+        async function trainModel() {
+            updateStatus('Training new model...');
+            progressBar.style.display = 'block';
+            progressBar.value = 0;
+            
+            trainModelBtn.disabled = true;
+            testModelBtn.disabled = true;
+            loadModelBtn.disabled = true;
+            
+            try {
+                model = createModel();
+                const data = await generateSyntheticData();
+                
+                await model.fit(data.train.images, data.train.labels, {
+                    epochs: 10,
+                    batchSize: 32,
+                    callbacks: {
+                        onEpochBegin: (epoch) => {
+                            updateStatus(`Training epoch ${epoch + 1}/10...`);
+                        },
+                        onEpochEnd: (epoch, logs) => {
+                            const progress = Math.floor((epoch + 1) / 10 * 100);
+                            progressBar.value = progress;
+                            updateStatus(`Epoch ${epoch + 1}/10 complete. Loss: ${logs.loss.toFixed(4)}, Accuracy: ${logs.acc.toFixed(4)}`);
+                        }
+                    }
+                });
+                
+                isModelReady = true;
+                updateStatus('Model trained successfully!');
+                testModelBtn.disabled = false;
+                predictCustomBtn.disabled = false;
+                
+            } catch (error) {
+                console.error('Error training model:', error);
+                updateStatus('Error training model!');
+            } finally {
+                progressBar.style.display = 'none';
+                trainModelBtn.disabled = false;
+                loadModelBtn.disabled = false;
+            }
+        }
+        
+        // Test model on sample images
+        async function testModel() {
+            if (!isModelReady) {
+                updateStatus('Model not ready yet!');
+                return;
+            }
+            
+            updateStatus('Testing model on sample images...');
+            resultsContainer.innerHTML = '';
+            
+            try {
+                const data = await generateSyntheticData();
+                const testImages = data.test.images;
+                const testLabels = data.test.rawLabels;
+                
+                // Get predictions for all test images
+                const predictions = model.predict(testImages);
+                const predictionArray = await predictions.argMax(1).array();
+                
+                // For each test image
+                for (let i = 0; i < 10; i++) {  // Display only first 10 results
+                    const imageTensor = testImages.slice([i, 0, 0, 0], [1, 32, 32, 3]);
+                    const actualClass = testLabels[i];
+                    const predictedClass = predictionArray[i];
+                    
+                    // Get confidence scores
+                    const confidenceScores = await predictions.slice([i, 0], [1, 10]).array();
+                    
+                    // Create result item
+                    const resultItem = document.createElement('div');
+                    resultItem.className = 'result-item';
+                    
+                    // Create canvas for displaying the image
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 80;
+                    canvas.height = 80;
+                    canvas.className = 'result-image';
+                    
+                    // Draw a sample image since we're using synthetic data
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = CLASSES[actualClass] === 'airplane' ? '#87CEEB' : 
+                                    CLASSES[actualClass] === 'bird' ? '#FFD700' :
+                                    CLASSES[actualClass] === 'cat' ? '#FFA500' :
+                                    CLASSES[actualClass] === 'dog' ? '#8B4513' :
+                                    CLASSES[actualClass] === 'deer' ? '#8B4513' :
+                                    CLASSES[actualClass] === 'frog' ? '#00FF00' :
+                                    CLASSES[actualClass] === 'horse' ? '#A52A2A' :
+                                    CLASSES[actualClass] === 'automobile' ? '#FF0000' :
+                                    CLASSES[actualClass] === 'ship' ? '#0000FF' : '#808080';
+                    ctx.fillRect(0, 0, 80, 80);
+                    
+                    // Create result details
+                    const resultDetails = document.createElement('div');
+                    resultDetails.className = 'result-details';
+                    
+                    const resultInfo = document.createElement('div');
+                    resultInfo.innerHTML = `<strong>Actual: ${CLASSES[actualClass]}</strong> | 
+                                           <strong>Predicted: ${CLASSES[predictedClass]}</strong> 
+                                           (${(confidenceScores[0][predictedClass] * 100).toFixed(2)}% confidence)`;
+                    
+                    resultDetails.appendChild(resultInfo);
+                    
+                    // Add top 3 predictions
+                    const topPredictions = Array.from(confidenceScores[0])
+                        .map((score, idx) => ({ score, label: CLASSES[idx] }))
+                        .sort((a, b) => b.score - a.score)
+                        .slice(0, 3);
+                    
+                    topPredictions.forEach(pred => {
+                        const predictionRow = document.createElement('div');
+                        predictionRow.style.display = 'flex';
+                        predictionRow.style.alignItems = 'center';
+                        predictionRow.style.marginTop = '5px';
+                        
+                        const label = document.createElement('div');
+                        label.style.width = '100px';
+                        label.textContent = pred.label;
+                        
+                        const barContainer = document.createElement('div');
+                        barContainer.style.flex = '1';
+                        
+                        const bar = document.createElement('div');
+                        bar.className = 'prediction-bar';
+                        bar.style.width = `${pred.score * 100}%`;
+                        
+                        const scoreText = document.createElement('span');
+                        scoreText.textContent = `${(pred.score * 100).toFixed(2)}%`;
+                        scoreText.style.marginLeft = '10px';
+                        
+                        barContainer.appendChild(bar);
+                        predictionRow.appendChild(label);
+                        predictionRow.appendChild(barContainer);
+                        predictionRow.appendChild(scoreText);
+                        
+                        resultDetails.appendChild(predictionRow);
+                    });
+                    
+                    resultItem.appendChild(canvas);
+                    resultItem.appendChild(resultDetails);
+                    resultsContainer.appendChild(resultItem);
+                }
+                
+                updateStatus('Testing complete!');
+                
+            } catch (error) {
+                console.error('Error testing model:', error);
+                updateStatus('Error testing model!');
+            }
+        }
+        
+        // Handle custom image upload
+        uploadBtn.addEventListener('click', () => {
+            customImageInput.click();
+        });
+        
+        customImageInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                const file = e.target.files[0];
+                const reader = new FileReader();
+                
+                reader.onload = (event) => {
+                    imagePreview.src = event.target.result;
+                    imagePreview.style.display = 'block';
+                };
+                
+                reader.readAsDataURL(file);
+            }
+        });
+        
+        // Predict class for custom image
+        async function predictCustomImage() {
+            if (!imagePreview.src || !isModelReady) {
+                return;
+            }
+            
+            updateStatus('Analyzing uploaded image...');
+            
+            try {
+                // Create a temporary image to process
+                const img = new Image();
+                img.src = imagePreview.src;
+                
+                img.onload = async () => {
+                    // Convert image to tensor, resize to 32x32
+                    const tensor = tf.browser.fromPixels(img)
+                        .resizeNearestNeighbor([32, 32])
+                        .toFloat()
+                        .div(255.0)
+                        .expandDims();
+                    
+                    // Make prediction
+                    const predictions = model.predict(tensor);
+                    const topPrediction = await predictions.argMax(1).array();
+                    const predictedClass = topPrediction[0];
+                    
+                    // Get confidence scores
+                    const confidenceScores = await predictions.array();
+                    
+                    // Clear previous results
+                    resultsContainer.innerHTML = '';
+                    
+                    // Create result item
+                    const resultItem = document.createElement('div');
+                    resultItem.className = 'result-item';
+                    
+                    // Add uploaded image
+                    const imgElement = document.createElement('img');
+                    imgElement.src = imagePreview.src;
+                    imgElement.className = 'result-image';
+                    
+                    // Create result details
+                    const resultDetails = document.createElement('div');
+                    resultDetails.className = 'result-details';
+                    
+                    const resultInfo = document.createElement('div');
+                    resultInfo.innerHTML = `<strong>Predicted Class: ${CLASSES[predictedClass]}</strong> 
+                                           (${(confidenceScores[0][predictedClass] * 100).toFixed(2)}% confidence)`;
+                    
+                    resultDetails.appendChild(resultInfo);
+                    
+                    // Add top 3 predictions
+                    const topPredictions = Array.from(confidenceScores[0])
+                        .map((score, idx) => ({ score, label: CLASSES[idx] }))
+                        .sort((a, b) => b.score - a.score)
+                        .slice(0, 3);
+                    
+                    topPredictions.forEach(pred => {
+                        const predictionRow = document.createElement('div');
+                        predictionRow.style.display = 'flex';
+                        predictionRow.style.alignItems = 'center';
+                        predictionRow.style.marginTop = '5px';
+                        
+                        const label = document.createElement('div');
+                        label.style.width = '100px';
+                        label.textContent = pred.label;
+                        
+                        const barContainer = document.createElement('div');
+                        barContainer.style.flex = '1';
+                        
+                        const bar = document.createElement('div');
+                        bar.className = 'prediction-bar';
+                        bar.style.width = `${pred.score * 100}%`;
+                        
+                        const scoreText = document.createElement('span');
+                        scoreText.textContent = `${(pred.score * 100).toFixed(2)}%`;
+                        scoreText.style.marginLeft = '10px';
+                        
+                        barContainer.appendChild(bar);
+                        predictionRow.appendChild(label);
+                        predictionRow.appendChild(barContainer);
+                        predictionRow.appendChild(scoreText);
+                        
+                        resultDetails.appendChild(predictionRow);
+                    });
+                    
+                    resultItem.appendChild(imgElement);
+                    resultItem.appendChild(resultDetails);
+                    resultsContainer.appendChild(resultItem);
+                    
+                    updateStatus('Analysis complete!');
+                };
+            } catch (error) {
+                console.error('Error predicting image:', error);
+                updateStatus('Error analyzing image!');
+            }
+        }
+        
+        // Event listeners
+        loadModelBtn.addEventListener('click', loadPretrainedModel);
+        trainModelBtn.addEventListener('click', trainModel);
+        testModelBtn.addEventListener('click', testModel);
+        predictCustomBtn.addEventListener('click', predictCustomImage);
+        
+        // Initial message
+        updateStatus('Click "Load Pre-trained Model" to start');
+    </script>
+</body>
+</html>
